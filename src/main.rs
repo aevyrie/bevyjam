@@ -1,4 +1,5 @@
 use bevy::{ecs::system::EntityCommands, prelude::*};
+use bevy_atmosphere::*;
 use heron::prelude::*;
 use ringbuffer::{ConstGenericRingBuffer, RingBufferExt, RingBufferWrite};
 
@@ -7,10 +8,13 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(PhysicsPlugin::default())
+        .add_plugin(AtmospherePlugin { dynamic: false })
+        .insert_resource(AtmosphereMat::default())
         .insert_resource(WindowDescriptor {
             vsync: true,
             ..Default::default()
         })
+        .insert_resource(ClearColor(Color::BLACK))
         .insert_resource(Gravity::from(Vec3::new(0.0, -9.81, 0.0)))
         .insert_resource(ParticleParams::default())
         .add_startup_system(setup)
@@ -32,7 +36,7 @@ const MAX_PARTICLES: usize = 256;
 struct Particle;
 
 fn particles(mut commands: Commands, mut params: ResMut<ParticleParams>) {
-    for _ in 0..2 {
+    for _ in 0..1 {
         if let Some(&entity) = params.ringbuffer.get(0) {
             commands.get_or_spawn(entity).despawn_recursive();
         }
@@ -48,7 +52,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut particle: ResMut<ParticleParams>,
 ) {
-    particle.radius = 0.01;
+    particle.radius = 0.05;
     particle.mesh = meshes.add(Mesh::from(shape::Icosphere {
         radius: particle.radius,
         subdivisions: 1,
@@ -64,18 +68,30 @@ fn setup(
 
     spawn_ground(&mut commands, &mut meshes, &mut materials);
 
+    let size = 15.0;
+
     commands.spawn_bundle(DirectionalLightBundle {
         directional_light: DirectionalLight {
             shadows_enabled: true,
-            illuminance: 10000.0,
-            color: Color::rgb(1.0, 1.0, 1.0),
+            illuminance: 20000.0,
+            color: Color::rgb_u8(201, 226, 255),
+            shadow_projection: OrthographicProjection {
+                left: -size,
+                right: size,
+                bottom: -size,
+                top: size,
+                near: -size,
+                far: size,
+                ..Default::default()
+            },
             ..Default::default()
         },
         transform: Transform::from_xyz(1.0, 2.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     });
     commands.spawn_bundle(PerspectiveCameraBundle {
-        transform: Transform::from_xyz(-3.0, 2.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(-10.0, 2.0, 10.0)
+            .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
         ..Default::default()
     });
 }
@@ -97,13 +113,13 @@ fn spawn_particles(commands: &mut EntityCommands, particle: &ResMut<ParticlePara
         })
         .insert(PhysicMaterial {
             restitution: 0.9,
-            density: 1.0,
+            density: 0.01,
             friction: 0.1,
         })
         .insert_bundle(PointLightBundle {
             point_light: PointLight {
-                intensity: 0.2 * scale,
-                range: 0.2,
+                intensity: 200.0 * scale * particle.radius,
+                range: 10.0 * particle.radius * scale,
                 shadows_enabled: false,
                 color: Color::rgb(1.0, 0.0, 0.0),
                 ..Default::default()
@@ -120,9 +136,9 @@ fn spawn_particles(commands: &mut EntityCommands, particle: &ResMut<ParticlePara
             ..Default::default()
         })
         .insert(Velocity::from_linear(Vec3::new(
-            (fastrand::f32() - 0.5) * 3.0,
-            3.0,
-            (fastrand::f32() - 0.5) * 3.0,
+            (fastrand::f32() - 0.5) * 15.0,
+            5.0,
+            (fastrand::f32() - 0.5) * 15.0,
         )))
         .insert(Particle);
 }
@@ -132,6 +148,13 @@ fn spawn_ground(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
 ) {
+    let material = materials.add(StandardMaterial {
+        base_color: Color::rgb(0.5, 0.5, 0.5),
+        perceptual_roughness: 0.8,
+        metallic: 0.9,
+        reflectance: 0.5,
+        ..Default::default()
+    });
     commands
         .spawn()
         .insert(Transform::from_xyz(0.0, -100.0, 0.0))
@@ -148,15 +171,41 @@ fn spawn_ground(
         .with_children(|child| {
             child.spawn_bundle(PbrBundle {
                 mesh: meshes.add(Mesh::from(shape::Plane { size: 100.0 })),
-                material: materials.add(StandardMaterial {
-                    base_color: Color::rgb(0.2, 0.2, 0.2),
-                    perceptual_roughness: 0.9,
-                    metallic: 0.9,
-                    reflectance: 0.8,
-                    ..Default::default()
-                }),
+                material: material.clone(),
                 transform: Transform::from_xyz(0.0, 100.0, 0.0),
                 ..Default::default()
             });
         });
+
+    let obstacle_mesh = meshes.add(Mesh::from(shape::Cube { size: 1.0 }));
+
+    for _ in 0..10000 {
+        let height = fastrand::f32() * 2.0;
+        commands
+            .spawn_bundle(PbrBundle {
+                mesh: obstacle_mesh.clone(),
+                material: material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(
+                        fastrand::f32() * 100.0 - 50.0,
+                        height / 2.0,
+                        fastrand::f32() * 100.0 - 50.0,
+                    ),
+                    scale: Vec3::new(0.1, height, 0.1),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(RigidBody::Static)
+            .insert(CollisionShape::Cuboid {
+                // let the size be consistent with our sprite
+                half_extends: Vec3::new(0.05, height / 2.0, 0.05),
+                border_radius: None,
+            })
+            .insert(PhysicMaterial {
+                restitution: 0.9,
+                density: 1.0,
+                friction: 0.1,
+            });
+    }
 }

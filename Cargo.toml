@@ -7,5 +7,6 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bevy = "0.6"
 fastrand = "1.0"
-heron = { version = "2.0.1", features = ["3d"] }
-ringbuffer = "0.8.2"
+heron = { version = "2.0", features = ["3d"] }
+ringbuffer = "0.8"
+bevy_atmosphere = "0.2"
