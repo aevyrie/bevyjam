@@ -6,4 +6,4 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 bevy = "0.6"
-heron = "2.0.1"
+heron = { version = "2.0.1", features = ["3d"] }
